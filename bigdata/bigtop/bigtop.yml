@@ -1,0 +1,31 @@
+# CommaFeed settings
+# ------------------
+earay:
+  # context path of the application 
+  contextPath: /
+  
+projects:
+  - class: earay.bigdata.bigtop.BigtopProject
+    resourcePackage: earay.bigdata.bigtop.frontend.resource
+
+# Database connection
+# -------------------  
+# for MySQL
+# driverClass is com.mysql.jdbc.Driver
+# url is jdbc:mysql://localhost/commafeed?autoReconnect=true&failOverReadOnly=false&maxReconnects=20&rewriteBatchedStatements=true
+#
+# for PostgreSQL
+# driverClass is org.postgresql.Driver
+# url is jdbc:postgresql://localhost:5432/commafeed
+#
+# for Microsoft SQL Server
+# driverClass is net.sourceforge.jtds.jdbc.Driver
+# url is jdbc:jtds:sqlserver://localhost:1433/commafeed;instance=<instanceName, remove if not needed>
+
+server:
+  applicationConnectors:
+    - type: http
+      port: 8083
+  adminConnectors:
+    - type: http
+      port: 8084

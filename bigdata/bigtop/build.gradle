@@ -1,0 +1,17 @@
+version = '0.1-SNAPSHOT'
+
+dependencies {
+//  compile 'org.apache.bigtop.itest:bigtop-smokes:0.8.0'
+  if (!project.hasProperty('apps'))
+    compile project(':base')
+}
+
+task hadoopThinCapsule(type: ThinCapsule) {
+  applicationClass "earay.bigdata.bigtop.BigtopApplication"
+}
+task hadoopFatCapsule(type: FatCapsule) {
+  applicationClass "earay.bigdata.bigtop.BigtopApplication"
+}
+task hadoopEmptyCapsule(type: Capsule) {
+  applicationClass "earay.bigdata.bigtop.BigtopApplication:LATEST"
+}

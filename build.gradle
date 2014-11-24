@@ -1,0 +1,101 @@
+plugins {
+  id "us.kirchmeier.capsule" version "0.9.0"
+}
+
+apply plugin: 'eclipse'
+
+ext {
+  versions = [
+    dropwizard: '0.7.1',
+    querydsl: '3.5.0',
+    swagger_ui : '2.0.24',
+  ]
+  generated = "src/main/generated"
+}
+
+subprojects {
+  apply plugin: 'java'
+  apply plugin: 'eclipse'
+  apply plugin: 'us.kirchmeier.capsule'
+  group = 'earay'
+  archivesBaseName = "earay-" + project.name
+  compileJava.options.encoding = 'UTF-8'
+  repositories {
+// definitely there is a bug in gradle working with mavenLocal http://forums.gradle.org/gradle/topics/gradle_fails_to_download_dependencies_if_not_present_in_mavenlocal. as mavenLocal doesn't introduce any performance benefits, comment it out in category repositories. 
+//  mavenLocal()
+    mavenCentral()
+  }
+  sourceSets {
+    generated {
+      java {
+        srcDirs = [project.generated]
+      }
+    }
+  }
+  configurations {
+    querydslapt
+    querydslaptEclipse
+  }
+  task generateQueryDSL(type: JavaCompile, group: 'build', description: 'Generates the QueryDSL query types') {
+    source = sourceSets.main.java
+    classpath = configurations.compile + configurations.querydslapt
+    options.compilerArgs = [
+      "-proc:only",
+      "-processor", "com.mysema.query.apt.jpa.JPAAnnotationProcessor"
+    ]
+    destinationDir = file(project.generated)
+  }
+  compileJava {
+    dependsOn generateQueryDSL
+    source project.generated
+  }
+  compileGeneratedJava {
+    dependsOn generateQueryDSL
+    options.warnings = false
+    classpath += sourceSets.main.runtimeClasspath
+  }
+  clean {
+    delete project.generated
+  }
+  eclipse {
+    classpath {
+      plusConfigurations += [ configurations.querydslapt, configurations.querydslaptEclipse ]
+      noExportConfigurations += [ configurations.querydslaptEclipse ]
+      defaultOutputDir = file('build/eclipse/classes')
+      downloadSources = true
+      downloadJavadoc = false
+      file {
+        whenMerged { classpath ->
+          def aptPaths = classpath.entries.findAll {
+            entry -> entry.path.indexOf('apt-hibernate-one-jar') > 0 }
+          project.ext["aptPath"] = aptPaths.iterator().next().path
+          classpath.entries.removeAll(aptPaths)
+//          classpath.entries.removeAll { entry -> entry.kind == "lib" && entry.exported == false }
+        }
+      }
+    }
+  }
+  eclipseJdt << {
+    File f = file(".factorypath")
+    f.write("<factorypath>\n\t<factorypathentry kind=\"EXTJAR\" id=\"${project.aptPath}\" enabled=\"true\" runInBatchMode=\"false\"/>\n</factorypath>")
+    f = file(".settings/org.eclipse.core.resources.prefs")
+    f.write("eclipse.preferences.version=1\n")
+    f.append("encoding/${project.name}=UTF-8")
+    f = file(".settings/org.eclipse.jdt.apt.core.prefs")
+    f.write("eclipse.preferences.version=1\n")
+    f.append("org.eclipse.jdt.apt.aptEnabled=true\n")
+    f.append("org.eclipse.jdt.apt.genSrcDir=${project.generated}\n")
+    f.append("org.eclipse.jdt.apt.processorOptions/defaultOverwrite=true\n")
+    f.append("org.eclipse.jdt.apt.reconcileEnabled=true\n")
+    f = file(".settings/org.eclipse.jdt.core.prefs")
+    f.append("org.eclipse.jdt.core.compiler.processAnnotations=enabled")
+  }
+  cleanEclipse << {
+    delete ".factorypath"
+    delete ".settings"
+  }
+  dependencies {
+    querydslapt "com.mysema.querydsl:querydsl-apt:${versions.querydsl}:hibernate"
+    querydslaptEclipse "com.mysema.querydsl:querydsl-jpa:${versions.querydsl}:apt-hibernate-one-jar"
+  }
+}
