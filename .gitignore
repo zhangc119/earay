@@ -1,6 +1,6 @@
 .gradle
 build
-src/main/generated
+generated/
 log
 
 # Eclipse
