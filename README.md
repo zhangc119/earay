@@ -23,6 +23,6 @@ Earay for micro service based on dropwizard.
 
 3.2) for one sub project under "bigdata" : ./gradlew -p base -Papps=bigdata:bigtop clean earayThinCapsule
 
-3.3) combine more by format "./gradlew -p base -Papps=<project1>,<project2>,...,<projectN> clean earayThinCapsule", here 'project?' represents either parent one or child one in 3.1/3.2
+3.3) combine more by format "./gradlew -p base -Papps=project1,project2,...,projectN clean earayThinCapsule", here 'project?' represents either parent one or child one in 3.1/3.2
 
 3.4) java -jar base/build/libs/earay-base-0.1-SNAPSHOT-capsule.jar server bigdata/bigtop/bigtop.yml
