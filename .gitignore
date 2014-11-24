@@ -1,0 +1,10 @@
+.gradle
+build
+src/main/generated
+log
+
+# Eclipse
+.project
+.classpath
+.factorypath
+.settings
