@@ -115,18 +115,20 @@ public class JSchREST {
 			@ApiParam(value = "timeout for validating scp process") @DefaultValue("10") @QueryParam("timeoutInSecond") int timeout,
 			@ApiParam(value = "groovy script to deal with scp process") @DefaultValue("scp.groovy") @QueryParam("groovyScript") String groovyScript
 			) {
-		Preconditions.checkNotNull(resource);
-		Preconditions.checkNotNull(destination);
-		sourceHost = StringUtils.trimToNull(sourceHost);
-		Preconditions.checkNotNull(sourceHost);
-		sourceUser = StringUtils.trimToNull(sourceUser);
-		Preconditions.checkNotNull(sourceUser);
-		sourcePasswd = StringUtils.trimToEmpty(sourcePasswd);
-		Preconditions.checkArgument(sourcePort > 0 && sourcePort < 256, "ssh port should be in range of 1-255");
 		Session session = null;
 		Channel channel = null;
 		Expect expect = null;
 		try {
+			Preconditions.checkNotNull(StringUtils.trimToNull(resource));
+			Preconditions.checkNotNull(StringUtils.trimToNull(destination));
+			Preconditions.checkNotNull(StringUtils.trimToNull(groovyScript));
+			sourceHost = StringUtils.trimToNull(sourceHost);
+			Preconditions.checkNotNull(sourceHost);
+			sourceUser = StringUtils.trimToNull(sourceUser);
+			Preconditions.checkNotNull(sourceUser);
+			sourcePasswd = StringUtils.trimToEmpty(sourcePasswd);
+			Preconditions.checkArgument(timeout > 0, "timeout should be larger than zero");
+			Preconditions.checkArgument(sourcePort > 0 && sourcePort < 256, "ssh port should be in range of 1-255");
 			session = openSSH(destUser, destPasswd, destHost, destPort);
 			channel = session.openChannel("shell");
 			String command = "scp -r -P " + sourcePort + " " + sourceUser + "@"

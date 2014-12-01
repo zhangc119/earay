@@ -53,8 +53,8 @@ public class GroovyREST {
 			+ "If returned object is too large (e.g. 'return injector.getAllBindings();'), swagger UI might not tackle it well, please try underneath /api/groovy/shell call for this case.")
 	public Response runShell(
 			@ApiParam(value = "groovy script shell", required = true) @QueryParam("script") String script) {
-		Preconditions.checkNotNull(script);
 		try {
+			Preconditions.checkNotNull(script);
 			return Response.ok(new GroovyResult(shell.evaluate(script), null)).build();
 		} catch (Throwable e) {
 			return Response.status(Status.BAD_REQUEST).entity(handleException(e)).build();
@@ -66,9 +66,9 @@ public class GroovyREST {
 	@ApiOperation(value = "Run one groovy script file", notes = "Check notes on /groovy/shell")
 	public Response runFile(
 			@ApiParam(value = "groovy script file path", required = true) @QueryParam("file") String file) {
-		file = StringUtils.trimToNull(file);
-		Preconditions.checkNotNull(file);
 		try {
+			file = StringUtils.trimToNull(file);
+			Preconditions.checkNotNull(file);
 			return Response.ok(new GroovyResult(gse.run(file, defaultBinding), null)).build();
 		} catch (Exception e) {
 			return Response.status(Status.BAD_REQUEST).entity(handleException(e)).build();
