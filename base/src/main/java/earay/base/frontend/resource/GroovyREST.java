@@ -54,7 +54,7 @@ public class GroovyREST {
 	public Response runShell(
 			@ApiParam(value = "groovy script shell", required = true) @QueryParam("script") String script) {
 		try {
-			Preconditions.checkNotNull(script);
+			Preconditions.checkNotNull(StringUtils.trimToNull(script));
 			return Response.ok(new GroovyResult(shell.evaluate(script), null)).build();
 		} catch (Throwable e) {
 			return Response.status(Status.BAD_REQUEST).entity(handleException(e)).build();

@@ -60,11 +60,11 @@ public class JSchREST {
 			@ApiParam(value = "sshd port on remote host") @DefaultValue("22") @QueryParam("port") int port,
 			@ApiParam(value = "user name for sshing to remote host", required = true) @QueryParam("user") String username,
 			@ApiParam(value = "password for sshing to remote host", required = true) @QueryParam("password") String password,
-			@ApiParam(value = "only entries newer than this", required = true) @QueryParam("command") String command) {
-		Preconditions.checkNotNull(command);
+			@ApiParam(value = "command to execute", required = true) @QueryParam("command") String command) {
 		Session session = null;
 		Channel channel = null;
 		try {
+			Preconditions.checkNotNull(StringUtils.trimToNull(command));
 			session = openSSH(username, password, hostname, port);
 			log.info("successfully ssh on remote host " + hostname);
 			channel = session.openChannel("exec");
