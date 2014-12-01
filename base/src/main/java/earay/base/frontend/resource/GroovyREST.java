@@ -7,7 +7,6 @@ import groovy.util.GroovyScriptEngine;
 import java.net.URL;
 
 import javax.ws.rs.Consumes;
-import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
@@ -35,21 +34,17 @@ import com.wordnik.swagger.annotations.ApiParam;
 @Consumes(MediaType.APPLICATION_JSON)
 public class GroovyREST {
 	
+	public static GroovyScriptEngine gse = new GroovyScriptEngine(
+			new URL[] { GroovyREST.class.getClassLoader().getResource("groovy/") });
+
 	private Binding defaultBinding;
-	
-	private GroovyScriptEngine gse;
 	
 	private GroovyShell shell;
 	
 	public GroovyREST(Injector injector) {
-		gse = new GroovyScriptEngine(new URL[]{getClass().getClassLoader().getResource("groovy/")});
 		defaultBinding = new Binding();
 		defaultBinding.setVariable("injector", injector);
 		shell = new GroovyShell(defaultBinding);
-	}
-	
-	public Object run(String script, Binding binding) throws Exception {
-		return gse.run(script, binding != null ? binding : defaultBinding);
 	}
 	
 	@Path("/shell")
@@ -74,7 +69,7 @@ public class GroovyREST {
 		file = StringUtils.trimToNull(file);
 		Preconditions.checkNotNull(file);
 		try {
-			return Response.ok(new GroovyResult(run(file, null), null)).build();
+			return Response.ok(new GroovyResult(gse.run(file, defaultBinding), null)).build();
 		} catch (Exception e) {
 			return Response.status(Status.BAD_REQUEST).entity(handleException(e)).build();
 		}

@@ -6,4 +6,4 @@ Result result = expect.sendLine(command).expect(Matchers.anyOf(Matchers.contains
 if (result.getInput().indexOf("yes/no") > 0)
 	expect.sendLine("yes").expect(Matchers.contains("password:"));
 expect.sendLine(password);
-expect.withTimeout(timeout, TimeUnit.SECONDS).expect(Matchers.contains("100%"));
+expect.withTimeout(timeout, TimeUnit.SECONDS).expect(Matchers.eof());

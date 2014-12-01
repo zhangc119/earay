@@ -3,8 +3,6 @@ package earay.base.frontend.resource;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
-import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -15,15 +13,15 @@ import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.expectit.Expect;
 import net.sf.expectit.ExpectBuilder;
-import net.sf.expectit.Result;
 import net.sf.expectit.filter.Filters;
-import net.sf.expectit.matcher.Matchers;
 
 import org.apache.commons.lang.StringUtils;
 
@@ -42,7 +40,6 @@ import com.wordnik.swagger.annotations.ApiParam;
 import earay.base.ClientProxyConfiguration;
 import earay.base.EarayConfiguration;
 import groovy.lang.Binding;
-import groovy.util.GroovyScriptEngine;
 
 @Path("/ssh")
 @Api(value = "/ssh", description = "Execute commands or transfer files via sshv2")
@@ -55,16 +52,10 @@ public class JSchREST {
 	
 	private final EarayConfiguration config;
 	
-	private GroovyScriptEngine gse = new GroovyScriptEngine(new URL[]{getClass().getClassLoader().getResource("groovy/")});
-	
-	public String getdata() {
-		return "hehe";
-	}
-	
 	@Path("/exec")
 	@POST
 	@ApiOperation(value = "Run one command and get the result", notes = "Tweak yml in case of handling ssh connection issues")
-	public JSchResult execute(
+	public Response execute(
 			@ApiParam(value = "remote host name", required = true) @QueryParam("host") String hostname,
 			@ApiParam(value = "sshd port on remote host") @DefaultValue("22") @QueryParam("port") int port,
 			@ApiParam(value = "user name for sshing to remote host", required = true) @QueryParam("user") String username,
@@ -98,10 +89,10 @@ public class JSchREST {
 		        }
 		        try { Thread.sleep(100); } catch ( Exception ee ) { }
 			}
-			return new JSchResult(sb.toString(), err.toString(), es);
+			return Response.ok(new JSchResult(sb.toString(), err.toString(), es)).build();
 		} catch (Exception ex) {
 			log.error(ex.getMessage(), ex);
-			return new JSchResult("", ex.getMessage(), -1);
+			return Response.status(Status.INTERNAL_SERVER_ERROR).entity(new JSchResult("", ex.getMessage(), -1)).build();
 		} finally {
 			closeSSH(session, channel, null);
 		}
@@ -110,14 +101,56 @@ public class JSchREST {
 	@Path("/scp")
 	@POST
 	@ApiOperation(value = "Copy files from source to destination", notes = "Tweak yml in case of handling ssh connection issues")
-	public JSchResult scp(
-			@ApiParam(value = "host name for sources", required = true) @QueryParam("sourceHost") String sourceHost,
-			@ApiParam(value = "sshd port on remote host") @DefaultValue("22") @QueryParam("sourcePort") int sourcePort,
-			@ApiParam(value = "user name for sshing to remote host", required = true) @QueryParam("sourceHostUser") String sourceUser,
-			@ApiParam(value = "password for sshing to remote host", required = true) @QueryParam("sourceHostPassword") String sourcePasswd,
-			@ApiParam(value = "only entries newer than this", required = true) @QueryParam("command") String command) {
-		return null;
-		
+	public Response scp(
+			@ApiParam(value = "source host name", required = true) @QueryParam("sourceHost") String sourceHost,
+			@ApiParam(value = "sshd port on source host") @DefaultValue("22") @QueryParam("sourcePort") int sourcePort,
+			@ApiParam(value = "user name for source host", required = true) @QueryParam("sourceHostUser") String sourceUser,
+			@ApiParam(value = "password for source host", required = true) @QueryParam("sourceHostPassword") String sourcePasswd,
+			@ApiParam(value = "resource to by copied", required = true) @QueryParam("resource") String resource,
+			@ApiParam(value = "destination host name", required = true) @QueryParam("destHost") String destHost,
+			@ApiParam(value = "sshd port on destination host") @DefaultValue("22") @QueryParam("destPort") int destPort,
+			@ApiParam(value = "user name for destination host", required = true) @QueryParam("destHostUser") String destUser,
+			@ApiParam(value = "password for destination host", required = true) @QueryParam("destHostPassword") String destPasswd,
+			@ApiParam(value = "destination to by copied", required = true) @QueryParam("destination") String destination,
+			@ApiParam(value = "timeout for validating scp process") @DefaultValue("10") @QueryParam("timeoutInSecond") int timeout,
+			@ApiParam(value = "groovy script to deal with scp process") @DefaultValue("scp.groovy") @QueryParam("groovyScript") String groovyScript
+			) {
+		Preconditions.checkNotNull(resource);
+		Preconditions.checkNotNull(destination);
+		sourceHost = StringUtils.trimToNull(sourceHost);
+		Preconditions.checkNotNull(sourceHost);
+		sourceUser = StringUtils.trimToNull(sourceUser);
+		Preconditions.checkNotNull(sourceUser);
+		sourcePasswd = StringUtils.trimToEmpty(sourcePasswd);
+		Preconditions.checkArgument(sourcePort > 0 && sourcePort < 256, "ssh port should be in range of 1-255");
+		Session session = null;
+		Channel channel = null;
+		Expect expect = null;
+		try {
+			session = openSSH(destUser, destPasswd, destHost, destPort);
+			channel = session.openChannel("shell");
+			String command = "scp -r -P " + sourcePort + " " + sourceUser + "@"
+					+ sourceHost + ":" + resource + " " + destination + "; exit";
+			expect = new ExpectBuilder()
+					.withOutput(channel.getOutputStream())
+					.withInputs(channel.getInputStream(), 
+							channel.getExtInputStream()).withEchoInput(System.out)
+					.withInputFilters(Filters.removeColors(), Filters.removeNonPrintable())
+					.withExceptionOnFailure().build();
+			channel.connect();
+			Binding binding = new Binding();
+			binding.setVariable("expect", expect);
+			binding.setVariable("command", command);
+			binding.setVariable("timeout", timeout);
+			binding.setVariable("password", sourcePasswd);
+			GroovyREST.gse.run("scp.groovy", binding);
+			return Response.ok(new JSchResult("scp succeeded", null, 0)).build();
+		} catch (Exception ex) {
+			log.error(ex.getMessage(), ex);
+			return Response.status(Status.INTERNAL_SERVER_ERROR).entity(new JSchResult("", ex.getMessage(), -1)).build();
+		} finally {
+			closeSSH(session, channel, expect);
+		}
 	}
 	
 	public Session openSSH(String username, String password, String hostname, int port) throws JSchException {
@@ -154,47 +187,6 @@ public class JSchREST {
 		if (channel != null) channel.disconnect();
 		if (session != null) session.disconnect();
 		if (expect != null) try { expect.close(); } catch (IOException e) { }
-	}
-	
-	public void runDynamicGroovy(String file) throws Exception {
-		Binding binding = new Binding();
-		gse.run(file, binding);
-	}
-	
-	public static void main(String[] args) throws Exception {
-		JSch jsch = new JSch();
-		Session session = jsch.getSession("serengeti", "10.111.89.55", 22);
-		session.setUserInfo(new JschUserInfo("password"));
-		session.connect();
-		Channel channel = session.openChannel("shell");
-		String command = "scp serengeti@10.111.88.23:/home/serengeti/apache-maven-3.2.3-bin.tar.gz /tmp/apache-maven-3.2.3-bin.tar.gz";
-		Expect expect = new ExpectBuilder()
-				.withOutput(channel.getOutputStream())
-				.withInputs(channel.getInputStream(), 
-						channel.getExtInputStream()).withEchoInput(System.out)
-//				.withEchoOutput(System.err)
-				.withInputFilters(Filters.removeColors(), Filters.removeNonPrintable())
-				.withExceptionOnFailure().build();
-		channel.connect();
-//		expect.sendLine(command).expect(Matchers.contains("yes/no"));
-//		expect.sendLine("yes");
-//		expect.expect(Matchers.contains("password"));
-/*		Result result = expect.sendLine(command).expect(Matchers.anyOf(Matchers.contains("yes/no"), Matchers.contains("password:")));
-		if (result.getInput().indexOf("yes/no") > 0)
-			expect.sendLine("yes").expect(Matchers.contains("password:"));
-		expect.sendLine("password");
-		expect.withTimeout(1, TimeUnit.SECONDS).expect(Matchers.contains("apache-maven-3.2.3-bin.tar.gz"));
-		expect.expect(Matchers.contains("100%"));*/
-		GroovyScriptEngine gse = new GroovyScriptEngine(new URL[]{JSchREST.class.getClassLoader().getResource("groovy/")});
-		Binding binding = new Binding();
-		binding.setVariable("expect", expect);
-		binding.setVariable("command", command);
-		binding.setVariable("timeout", 100);
-		binding.setVariable("password", "password");
-		gse.run("scp.groovy", binding);
-		channel.disconnect();
-		session.disconnect();
-		expect.close();
 	}
 	
 	@Getter
