@@ -15,6 +15,7 @@ import javax.inject.Singleton;
 
 import org.reflections.Reflections;
 
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
@@ -29,7 +30,7 @@ import com.wordnik.swagger.jaxrs.reader.DefaultJaxrsApiReader;
 import com.wordnik.swagger.reader.ClassReaders;
 
 import earay.base.backend.model.AbstractModel;
-import earay.base.frontend.resource.JSchREST;
+import earay.base.frontend.resource.GroovyREST;
 
 public class EarayApplication extends Application<EarayConfiguration> {
 	
@@ -66,17 +67,16 @@ public class EarayApplication extends Application<EarayConfiguration> {
 	@Override
 	public void run(EarayConfiguration config, Environment environment) throws Exception {
 		environment.getApplicationContext().setContextPath(config.getApplicationSettings().getContextPath());
+		environment.getObjectMapper().disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
 		Injector injector = Guice.createInjector(new EarayModule(
 				hibernateBundle != null ? hibernateBundle.getSessionFactory() : null, 
 				config, environment.metrics()));
 		environment.jersey().setUrlPattern("/api/*");
+		environment.jersey().register(new GroovyREST(injector));
+		registerResources(environment, injector, GroovyREST.class.getPackage().getName());
 		for (EarayProject project : config.getProjects()) {
-			Reflections reflections = new Reflections(project.getResourcePackage());
-			Set<Class<?>> resourceClasses = reflections.getTypesAnnotatedWith(Singleton.class);
-			for (Class<? extends Object> rc : resourceClasses)
-				environment.jersey().register(injector.getInstance(rc));
+			registerResources(environment, injector, project.getResourcePackage());
 		}
-		environment.jersey().register(new JSchREST(config.getJschConfiguration(), config.getProxyConfiguration()));
 		environment.jersey().register(new ApiListingResourceJSON());
 		environment.jersey().register(new ApiDeclarationProvider());
 		environment.jersey().register(new ResourceListingProvider());
@@ -85,6 +85,13 @@ public class EarayApplication extends Application<EarayConfiguration> {
 		SwaggerConfig swaggerConfig = ConfigFactory.config();
 		swaggerConfig.setApiVersion("1");
 		swaggerConfig.setBasePath("/api");
+	}
+	
+	private void registerResources(Environment environment, Injector injector, String resourcePackage) {
+		Reflections reflections = new Reflections(resourcePackage);
+		Set<Class<?>> resourceClasses = reflections.getTypesAnnotatedWith(Singleton.class);
+		for (Class<? extends Object> rc : resourceClasses)
+			environment.jersey().register(injector.getInstance(rc));
 	}
 
 	public static void main(String[] args) throws Exception {

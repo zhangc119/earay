@@ -29,6 +29,7 @@ dependencies {
   }
   compile "com.jcraft:jsch:0.1.51"
   compile "net.sf.expectit:expectit-core:0.6.0"
+  compile "org.codehaus.groovy:groovy:2.3.7"
   if (project.hasProperty('apps')) {
     project.property('apps').split(',').each() {entry ->
       project(":${entry}").configurations.compile.dependencies.all {

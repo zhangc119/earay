@@ -3,7 +3,10 @@ package earay.base.frontend.resource;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
+import java.util.concurrent.TimeUnit;
 
+import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DefaultValue;
@@ -37,21 +40,26 @@ import com.wordnik.swagger.annotations.ApiOperation;
 import com.wordnik.swagger.annotations.ApiParam;
 
 import earay.base.ClientProxyConfiguration;
-
-import javax.script.ScriptEngine;
+import earay.base.EarayConfiguration;
+import groovy.lang.Binding;
+import groovy.util.GroovyScriptEngine;
 
 @Path("/ssh")
 @Api(value = "/ssh", description = "Execute commands or transfer files via sshv2")
 @Slf4j
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor = @__({ @Inject }))
 @Singleton
 public class JSchREST {
-
-	private final JschConfiguration configuration;
 	
-	private final ClientProxyConfiguration proxy;
+	private final EarayConfiguration config;
+	
+	private GroovyScriptEngine gse = new GroovyScriptEngine(new URL[]{getClass().getClassLoader().getResource("groovy/")});
+	
+	public String getdata() {
+		return "hehe";
+	}
 	
 	@Path("/exec")
 	@POST
@@ -113,14 +121,17 @@ public class JSchREST {
 	}
 	
 	public Session openSSH(String username, String password, String hostname, int port) throws JSchException {
+		hostname = StringUtils.trimToNull(hostname);
 		Preconditions.checkNotNull(hostname);
 		username = StringUtils.trimToNull(username);
-		password = StringUtils.trimToEmpty(password);
 		Preconditions.checkNotNull(username);
+		password = StringUtils.trimToEmpty(password);
 		Preconditions.checkArgument(port > 0 && port < 256, "ssh port should be in range of 1-255");
 		JSch jsch = new JSch();
 		Session session = jsch.getSession(username, hostname, port);
 		session.setUserInfo(new JschUserInfo(password));
+		JschConfiguration configuration = config.getJschConfiguration();
+		ClientProxyConfiguration proxy = config.getProxyConfiguration();
 		if (configuration != null) {
 			session.setConfig(configuration.getConfig());
 			session.setTimeout(Math.max(configuration.getTimeOut(), session.getTimeout()));
@@ -145,6 +156,11 @@ public class JSchREST {
 		if (expect != null) try { expect.close(); } catch (IOException e) { }
 	}
 	
+	public void runDynamicGroovy(String file) throws Exception {
+		Binding binding = new Binding();
+		gse.run(file, binding);
+	}
+	
 	public static void main(String[] args) throws Exception {
 		JSch jsch = new JSch();
 		Session session = jsch.getSession("serengeti", "10.111.89.55", 22);
@@ -163,12 +179,19 @@ public class JSchREST {
 //		expect.sendLine(command).expect(Matchers.contains("yes/no"));
 //		expect.sendLine("yes");
 //		expect.expect(Matchers.contains("password"));
-		Result result = expect.sendLine(command).expect(Matchers.anyOf(Matchers.contains("yes/no"), Matchers.contains("password:")));
+/*		Result result = expect.sendLine(command).expect(Matchers.anyOf(Matchers.contains("yes/no"), Matchers.contains("password:")));
 		if (result.getInput().indexOf("yes/no") > 0)
 			expect.sendLine("yes").expect(Matchers.contains("password:"));
 		expect.sendLine("password");
-//		expect.withTimeout(1, TimeUnit.SECONDS).expect(Matchers.contains("apache-maven-3.2.3-bin.tar.gz"));
-		expect.expect(Matchers.contains("100%"));
+		expect.withTimeout(1, TimeUnit.SECONDS).expect(Matchers.contains("apache-maven-3.2.3-bin.tar.gz"));
+		expect.expect(Matchers.contains("100%"));*/
+		GroovyScriptEngine gse = new GroovyScriptEngine(new URL[]{JSchREST.class.getClassLoader().getResource("groovy/")});
+		Binding binding = new Binding();
+		binding.setVariable("expect", expect);
+		binding.setVariable("command", command);
+		binding.setVariable("timeout", 100);
+		binding.setVariable("password", "password");
+		gse.run("scp.groovy", binding);
 		channel.disconnect();
 		session.disconnect();
 		expect.close();
