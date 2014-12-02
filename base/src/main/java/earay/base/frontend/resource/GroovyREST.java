@@ -24,6 +24,7 @@ import org.apache.commons.lang.StringUtils;
 import com.google.common.base.Preconditions;
 import com.google.inject.Injector;
 import com.wordnik.swagger.annotations.Api;
+import com.wordnik.swagger.annotations.ApiModelProperty;
 import com.wordnik.swagger.annotations.ApiOperation;
 import com.wordnik.swagger.annotations.ApiParam;
 
@@ -50,7 +51,8 @@ public class GroovyREST {
 	@Path("/shell")
 	@POST
 	@ApiOperation(value = "Run input groovy shell script", notes = "<p/>For debugging, e.g. 'return injector.getInstance(earay.base.EarayConfiguration.class);'.<p/>"
-			+ "If returned object is too large (e.g. 'return injector.getAllBindings();'), swagger UI might not tackle it well, please try underneath /api/groovy/shell call for this case.")
+			+ "If returned object is too large (e.g. 'return injector.getAllBindings();'), swagger UI might not tackle it well, please try underneath /api/groovy/shell call for this case.",
+			response = GroovyResult.class)
 	public Response runShell(
 			@ApiParam(value = "groovy script shell", required = true) @QueryParam("script") String script) {
 		try {
@@ -63,7 +65,7 @@ public class GroovyREST {
 	
 	@Path("/file")
 	@POST
-	@ApiOperation(value = "Run one groovy script file", notes = "Check notes on /groovy/shell")
+	@ApiOperation(value = "Run one groovy script file", notes = "Check notes on /groovy/shell", response = GroovyResult.class)
 	public Response runFile(
 			@ApiParam(value = "groovy script file path", required = true) @QueryParam("file") String file) {
 		try {
@@ -84,8 +86,10 @@ public class GroovyREST {
 	@RequiredArgsConstructor
 	public static class GroovyResult {
 		
+		@ApiModelProperty(value = "returned object from groovy script")
 		private final Object output;
 		
+		@ApiModelProperty(value = "any exception in evaluating groovy script")
 		private final Throwable exception;
 		
 	}

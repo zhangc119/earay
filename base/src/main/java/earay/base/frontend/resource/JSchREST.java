@@ -34,6 +34,7 @@ import com.jcraft.jsch.ProxyHTTP;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
 import com.wordnik.swagger.annotations.Api;
+import com.wordnik.swagger.annotations.ApiModelProperty;
 import com.wordnik.swagger.annotations.ApiOperation;
 import com.wordnik.swagger.annotations.ApiParam;
 
@@ -54,7 +55,7 @@ public class JSchREST {
 	
 	@Path("/exec")
 	@POST
-	@ApiOperation(value = "Run one command and get the result", notes = "Tweak yml in case of handling ssh connection issues")
+	@ApiOperation(value = "Run one command and get the result", notes = "Tweak yml in case of handling ssh connection issues", response = JSchResult.class)
 	public Response execute(
 			@ApiParam(value = "remote host name", required = true) @QueryParam("host") String hostname,
 			@ApiParam(value = "sshd port on remote host") @DefaultValue("22") @QueryParam("port") int port,
@@ -100,7 +101,7 @@ public class JSchREST {
 	
 	@Path("/scp")
 	@POST
-	@ApiOperation(value = "Copy files from source to destination", notes = "Tweak yml in case of handling ssh connection issues")
+	@ApiOperation(value = "Copy files from source to destination", notes = "Tweak yml in case of handling ssh connection issues", response = JSchResult.class)
 	public Response scp(
 			@ApiParam(value = "source host name", required = true) @QueryParam("sourceHost") String sourceHost,
 			@ApiParam(value = "sshd port on source host") @DefaultValue("22") @QueryParam("sourcePort") int sourcePort,
@@ -221,10 +222,13 @@ public class JSchREST {
 	@RequiredArgsConstructor
 	public static class JSchResult {
 		
+		@ApiModelProperty(value = "returned message")
 		private final String output;
 		
+		@ApiModelProperty(value = "any error on the operation via ssh")
 		private final String error;
 		
+		@ApiModelProperty(value = "status for ssh operation, 0 for expected behavior")
 		private final int status;		
 		
 	}
