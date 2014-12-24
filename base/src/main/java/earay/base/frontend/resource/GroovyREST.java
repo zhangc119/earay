@@ -1,16 +1,18 @@
 package earay.base.frontend.resource;
 
+import earay.base.frontend.model.FilePathOrContent;
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
 import groovy.util.GroovyScriptEngine;
 
 import java.net.URL;
 
+import javax.validation.Valid;
+import javax.validation.constraints.NotNull;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
@@ -19,9 +21,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.apache.commons.lang.StringUtils;
-
-import com.google.common.base.Preconditions;
 import com.google.inject.Injector;
 import com.wordnik.swagger.annotations.Api;
 import com.wordnik.swagger.annotations.ApiModelProperty;
@@ -48,33 +47,27 @@ public class GroovyREST {
 		shell = new GroovyShell(defaultBinding);
 	}
 	
-	@Path("/shell")
+	@Path("/run")
 	@POST
 	@ApiOperation(value = "Run input groovy shell script", notes = "<p/>For debugging, e.g. 'return injector.getInstance(earay.base.EarayConfiguration.class);'.<p/>"
-			+ "If returned object is too large (e.g. 'return injector.getAllBindings();'), swagger UI might not tackle it well, please try underneath /api/groovy/shell call for this case.",
+			+ "If returned object is too large (e.g. 'return injector.getAllBindings();'), swagger UI might not tackle it well, please try /api/groovy/shell for this case.",
 			response = GroovyResult.class)
-	public Response runShell(
-			@ApiParam(value = "groovy script shell", required = true) @QueryParam("script") String script) {
+	public Response run(@ApiParam(required = true) @Valid @NotNull FilePathOrContent script) {
 		try {
-			Preconditions.checkNotNull(StringUtils.trimToNull(script));
-			return Response.ok(new GroovyResult(shell.evaluate(script), null)).build();
+			String content = script.getContent();
+			if (content != null)
+				return Response.ok(new GroovyResult(shell.evaluate(content), null)).build();
+			else {
+				return Response.ok(new GroovyResult(gse.run(script.getFile(), defaultBinding), null)).build();
+			}
 		} catch (Throwable e) {
 			return Response.status(Status.BAD_REQUEST).entity(handleException(e)).build();
 		}
 	}
 	
-	@Path("/file")
-	@POST
-	@ApiOperation(value = "Run one groovy script file", notes = "Check notes on /groovy/shell", response = GroovyResult.class)
-	public Response runFile(
-			@ApiParam(value = "groovy script file path", required = true) @QueryParam("file") String file) {
-		try {
-			file = StringUtils.trimToNull(file);
-			Preconditions.checkNotNull(file);
-			return Response.ok(new GroovyResult(gse.run(file, defaultBinding), null)).build();
-		} catch (Exception e) {
-			return Response.status(Status.BAD_REQUEST).entity(handleException(e)).build();
-		}
+	public static Object runShell(String script, Binding binding) {
+		GroovyShell shell = new GroovyShell(binding);
+		return shell.evaluate(script);
 	}
 	
 	private GroovyResult handleException(Throwable ex) {

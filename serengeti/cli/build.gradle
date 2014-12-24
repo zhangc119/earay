@@ -1,0 +1,16 @@
+version = '0.1-SNAPSHOT'
+
+dependencies {
+  if (!project.hasProperty('apps'))
+    compile project(':base')
+}
+
+task hadoopThinCapsule(type: ThinCapsule) {
+  applicationClass "earay.serengeti.cli.SerengetiCLI"
+}
+task hadoopFatCapsule(type: FatCapsule) {
+  applicationClass "earay.serengeti.cli.SerengetiCLI"
+}
+task hadoopEmptyCapsule(type: Capsule) {
+  applicationClass "earay.serengeti.cli.SerengetiCLI:LATEST"
+}

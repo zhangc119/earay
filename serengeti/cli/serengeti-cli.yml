@@ -5,10 +5,7 @@ earay:
   contextPath: /
   
 projects:
-  - class: earay.bigdata.bigtop.BigtopProject
-#    resourcePackage: earay.bigdata.bigtop.frontend.resource
   - class: earay.serengeti.cli.SerengetiCLIProject
-  - class: earay.serengeti.install.SerengetiInstallProject
 
 # Database connection
 # -------------------  

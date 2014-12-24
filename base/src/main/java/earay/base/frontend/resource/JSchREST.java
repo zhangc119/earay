@@ -1,36 +1,47 @@
 package earay.base.frontend.resource;
 
+import io.dropwizard.validation.ValidationMethod;
+
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.Serializable;
 import java.net.URL;
+import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.validation.Valid;
+import javax.validation.constraints.NotNull;
 import javax.ws.rs.Consumes;
-import javax.ws.rs.DefaultValue;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.expectit.Expect;
 import net.sf.expectit.ExpectBuilder;
+import net.sf.expectit.Result;
 import net.sf.expectit.filter.Filters;
+import net.sf.expectit.matcher.Matchers;
 
 import org.apache.commons.lang.StringUtils;
+import org.h2.util.IOUtils;
+import org.hibernate.validator.constraints.NotBlank;
 
-import com.google.common.base.Preconditions;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.jcraft.jsch.Channel;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
@@ -38,17 +49,23 @@ import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.ProxyHTTP;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
+import com.sun.jersey.core.header.FormDataContentDisposition;
+import com.sun.jersey.multipart.FormDataParam;
 import com.wordnik.swagger.annotations.Api;
+import com.wordnik.swagger.annotations.ApiImplicitParam;
+import com.wordnik.swagger.annotations.ApiImplicitParams;
 import com.wordnik.swagger.annotations.ApiModelProperty;
 import com.wordnik.swagger.annotations.ApiOperation;
 import com.wordnik.swagger.annotations.ApiParam;
 
 import earay.base.ClientProxyConfiguration;
 import earay.base.EarayConfiguration;
+import earay.base.frontend.model.SSHServerFile;
+import earay.base.frontend.model.SSHServerInfo;
 import groovy.lang.Binding;
 
-@Path("/ssh")
-@Api(value = "/ssh", description = "Execute commands or transfer files via sshv2")
+@Path("/file")
+@Api(value = "/file", description = "Transfer files via sshv2 or http")
 @Slf4j
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
@@ -60,21 +77,15 @@ public class JSchREST {
 	
 	@Path("/exec")
 	@POST
-	@ApiOperation(value = "Run one command and get the result", response = JSchResult.class)
-	public Response execute(
-			@ApiParam(value = "remote host name", required = true) @QueryParam("host") String hostname,
-			@ApiParam(value = "sshd port on remote host") @DefaultValue("22") @QueryParam("port") int port,
-			@ApiParam(value = "user name for sshing to remote host", required = true) @QueryParam("user") String username,
-			@ApiParam(value = "password for sshing to remote host", required = true) @QueryParam("password") String password,
-			@ApiParam(value = "command to execute", required = true) @QueryParam("command") String command) {
+	@ApiOperation(value = "Run one command and get the result via ssh", response = JSchResult.class)
+	public Response execute(@ApiParam(value = "remote ssh server access information", required = true) @Valid @NotNull SSHExecRequest req) {
 		Session session = null;
 		Channel channel = null;
 		try {
-			Preconditions.checkNotNull(StringUtils.trimToNull(command));
-			session = openSSH(username, password, hostname, port);
-			log.info("successfully ssh on remote host " + hostname);
+			session = openSSH(req.getServer());
+			log.info("successfully ssh on remote host " + req.getServer().getHostName());
 			channel = session.openChannel("exec");
-			((ChannelExec)channel).setCommand(command);
+			((ChannelExec)channel).setCommand(req.getCommand());
 			ByteArrayOutputStream err = new ByteArrayOutputStream();
 			((ChannelExec)channel).setErrStream(err);
 			InputStream in = channel.getInputStream();
@@ -95,14 +106,17 @@ public class JSchREST {
 		        }
 		        try { Thread.sleep(100); } catch ( Exception ee ) { }
 			}
+			//TODO : need to bind streams as log appenders automatically, and for expectit as well
+			log.info(sb.toString());
+			log.error(err.toString());
 			JSchResult result = new JSchResult(sb.toString(), err.toString(), es);
 			if (es == 0)
 				return Response.ok(result).build();
 			else
-				return Response.status(Status.INTERNAL_SERVER_ERROR).entity(result).build();
+				return Response.serverError().entity(result).build();
 		} catch (Exception ex) {
 			log.error(ex.getMessage(), ex);
-			return Response.status(Status.INTERNAL_SERVER_ERROR).entity(new JSchResult("", ex.getMessage(), -1)).build();
+			return Response.serverError().entity(new JSchResult("", ex.getMessage(), -1)).build();
 		} finally {
 			closeSSH(session, channel, null);
 		}
@@ -110,58 +124,31 @@ public class JSchREST {
 	
 	@Path("/scp")
 	@POST
-	@ApiOperation(value = "Copy files from source to destination", 
+	@ApiOperation(value = "Copy files from source to destination via ssh", 
 			notes = "Both file and recursive folder copy are supported", 
 			response = JSchResult.class)
-	public Response scp(
-			@ApiParam(value = "source host name", required = true) @QueryParam("sourceHost") String sourceHost,
-			@ApiParam(value = "sshd port on source host") @DefaultValue("22") @QueryParam("sourcePort") int sourcePort,
-			@ApiParam(value = "user name for source host", required = true) @QueryParam("sourceHostUser") String sourceUser,
-			@ApiParam(value = "password for source host", required = true) @QueryParam("sourceHostPassword") String sourcePasswd,
-			@ApiParam(value = "resource to by copied", required = true) @QueryParam("resource") String resource,
-			@ApiParam(value = "destination host name", required = true) @QueryParam("destHost") String destHost,
-			@ApiParam(value = "sshd port on destination host") @DefaultValue("22") @QueryParam("destPort") int destPort,
-			@ApiParam(value = "user name for destination host", required = true) @QueryParam("destHostUser") String destUser,
-			@ApiParam(value = "password for destination host", required = true) @QueryParam("destHostPassword") String destPasswd,
-			@ApiParam(value = "destination to by copied", required = true) @QueryParam("destination") String destination,
-			@ApiParam(value = "timeout for validating scp process") @DefaultValue("10") @QueryParam("timeoutInSecond") int timeout,
-			@ApiParam(value = "groovy script to deal with scp process") @DefaultValue("scp.groovy") @QueryParam("groovyScript") String groovyScript
-			) {
+	public Response scp(@ApiParam(required = true) @Valid @NotNull ScpRequest req) {
 		Session session = null;
 		Channel channel = null;
 		Expect expect = null;
 		try {
-			Preconditions.checkNotNull(StringUtils.trimToNull(resource));
-			Preconditions.checkNotNull(StringUtils.trimToNull(destination));
-			groovyScript = RESTUtil.trimToDefault(groovyScript, "scp.groovy");
-			sourceHost = StringUtils.trimToNull(sourceHost);
-			Preconditions.checkNotNull(sourceHost);
-			sourceUser = StringUtils.trimToNull(sourceUser);
-			Preconditions.checkNotNull(sourceUser);
-			sourcePasswd = StringUtils.trimToEmpty(sourcePasswd);
-			Preconditions.checkArgument(timeout > 0, "timeout should be larger than zero");
-			Preconditions.checkArgument(sourcePort > 0 && sourcePort < 256, "ssh port should be in range of 1-255");
-			session = openSSH(destUser, destPasswd, destHost, destPort);
+			session = openSSH(req.getDestination());
 			channel = session.openChannel("shell");
-			String command = "scp -r -P " + sourcePort + " " + sourceUser + "@"
-					+ sourceHost + ":" + resource + " " + destination + "; exit";
-			expect = new ExpectBuilder()
-					.withOutput(channel.getOutputStream())
-					.withInputs(channel.getInputStream(), 
-							channel.getExtInputStream()).withEchoInput(System.out)
-					.withInputFilters(Filters.removeColors(), Filters.removeNonPrintable())
-					.withExceptionOnFailure().build();
+			SSHServerFile source = req.getSource();
+			String command = "scp -r -P " + source.getPort() + " " + source.getUserName() + "@"
+					+ source.getHostName() + ":" + source.getFile() + " " + req.getDestination().getFile() + "; exit";
+			expect = setupExpect(channel);
 			channel.connect(session.getTimeout());
 			Binding binding = new Binding();
 			binding.setVariable("expect", expect);
 			binding.setVariable("command", command);
-			binding.setVariable("timeout", timeout);
-			binding.setVariable("password", sourcePasswd);
-			GroovyREST.gse.run("scp.groovy", binding);
+			binding.setVariable("timeout", req.getTimeout());
+			binding.setVariable("password", source.getPassword());
+			GroovyREST.gse.run(req.getGroovyScript(), binding);
 			return Response.ok(new JSchResult("scp succeeded", "", 0)).build();
 		} catch (Exception ex) {
 			log.error(ex.getMessage(), ex);
-			return Response.status(Status.INTERNAL_SERVER_ERROR).entity(new JSchResult("", ex.getMessage(), -1)).build();
+			return Response.serverError().entity(new JSchResult("", ex.getMessage(), -1)).build();
 		} finally {
 			closeSSH(session, channel, expect);
 		}
@@ -169,25 +156,16 @@ public class JSchREST {
 	
 	@Path("/deploy")
 	@POST
-	@ApiOperation(value = "Deploy one resourse file within earay application jar or one local file to remote host", 
+	@ApiOperation(value = "Deploy one resourse file within earay application jar or one local file to remote host via ssh", 
 			notes = "<p/>For resource file within application jar, please enter the file location relative to resource class path, e.g. 'groovy/scp.groovy' for parameter 'resource'", 
 			response = JSchResult.class)
-	public Response deploy(
-			@ApiParam(value = "remote host name", required = true) @QueryParam("host") String hostname,
-			@ApiParam(value = "sshd port on remote host") @DefaultValue("22") @QueryParam("port") int port,
-			@ApiParam(value = "user name for sshing to remote host", required = true) @QueryParam("user") String username,
-			@ApiParam(value = "password for sshing to remote host", required = true) @QueryParam("password") String password,
-			@ApiParam(value = "resource class path within appliation jar, or local file location. Folder is not supported", required = true) @QueryParam("resource") String resource,
-			@ApiParam(value = "destination file path to be deployed, folder is not supported", required = true) @QueryParam("destination") String destination
-			) {
+	public Response deploy(@ApiParam(required = true) @Valid @NotNull DeployRequest req) {
 		Session session = null;
 		Channel channel = null;
 		InputStream fis = null;
 		try {
-			Preconditions.checkNotNull(StringUtils.trimToNull(resource));
-			Preconditions.checkNotNull(StringUtils.trimToNull(destination));
-			session = openSSH(username, password, hostname, port);
-			String command = "scp -t " + destination;
+			session = openSSH(req.getDestination());
+			String command = "scp -t " + req.getDestination().getFile();
 			channel = session.openChannel("exec");
 			((ChannelExec)channel).setCommand(command);
 			OutputStream out = channel.getOutputStream();
@@ -195,8 +173,9 @@ public class JSchREST {
 			channel.connect(session.getTimeout());
 			JSchResult result = checkAck(in);
 			if (result.getStatus() != 0) {
-				return Response.status(Status.INTERNAL_SERVER_ERROR).entity(result).build();
+				return Response.serverError().entity(result).build();
 			}
+			String resource = req.getResource();
 			URL fileURL = JSchREST.class.getClassLoader().getResource(resource);
 			File localFile = null;
 			String fileName = resource;
@@ -220,7 +199,7 @@ public class JSchREST {
 			out.flush();
 			result = checkAck(in);
 			if (result.getStatus() != 0) {
-				return Response.status(Status.INTERNAL_SERVER_ERROR).entity(result).build();
+				return Response.serverError().entity(result).build();
 			}
 			if (fileURL != null)
 				fis = fileURL.openStream();
@@ -241,27 +220,47 @@ public class JSchREST {
 			out.close();
 			result = checkAck(in);
 			if (result.getStatus() != 0) {
-				return Response.status(Status.INTERNAL_SERVER_ERROR).entity(result).build();
+				return Response.serverError().entity(result).build();
 			}
 			return Response.ok(new JSchResult("deployment done", "", 0)).build();
 		} catch (Exception ex) {
 			log.error(ex.getMessage(), ex);
-			return Response.status(Status.INTERNAL_SERVER_ERROR).entity(new JSchResult("", ex.getMessage(), -1)).build();
+			return Response.serverError().entity(new JSchResult("", ex.getMessage(), -1)).build();
 		} finally {
 			closeSSH(session, channel, fis);
 		}
 	}
 	
-	public Session openSSH(String username, String password, String hostname, int port) throws JSchException {
-		hostname = StringUtils.trimToNull(hostname);
-		Preconditions.checkNotNull(hostname);
-		username = StringUtils.trimToNull(username);
-		Preconditions.checkNotNull(username);
-		password = StringUtils.trimToEmpty(password);
-		Preconditions.checkArgument(port > 0 && port < 256, "ssh port should be in range of 1-255");
+	@Path("/upload")
+	@POST
+    @Consumes(MediaType.MULTIPART_FORM_DATA)	@ApiImplicitParams(@ApiImplicitParam(dataType = "file", name = "file", paramType = "body"))
+	@ApiOperation(value = "Upload a client file to the host where this earay applicaiton exists via http", response = JSchResult.class)
+	public Response upload(@FormDataParam("file") InputStream stream,
+			@FormDataParam("file") FormDataContentDisposition fileDetail) {
+		String filename = fileDetail.getFileName();
+		String uploadDir = config.getJschConfiguration() != null ? config.getJschConfiguration().getUploadDir() : JschConfiguration.defaultUploadDir;
+		String outputPath = uploadDir + File.separator + filename;
+		OutputStream outputStream = null;
+		try {
+            outputStream = new FileOutputStream(outputPath);
+            IOUtils.copy(stream, outputStream);
+            return Response.ok(new JSchResult(outputPath, "", 0)).build();
+        } catch (IOException ex) {
+        		log.error("Failed to upload " + filename, ex);
+            return Response.serverError().entity(new JSchResult("", ex.getMessage(), -1)).build();
+        } finally {
+			if (outputStream != null)
+				try {
+					outputStream.close();
+				} catch (IOException e) {
+				}
+        }
+	}
+	
+	public Session openSSH(SSHServerInfo server) throws JSchException {
 		JSch jsch = new JSch();
-		Session session = jsch.getSession(username, hostname, port);
-		session.setUserInfo(new JschUserInfo(password));
+		Session session = jsch.getSession(server.getUserName(), server.getHostName(), server.getPort());
+		session.setUserInfo(new JschUserInfo(server.getPassword()));
 		JschConfiguration configuration = config.getJschConfiguration();
 		ClientProxyConfiguration proxy = config.getProxyConfiguration();
 		if (configuration != null) {
@@ -278,7 +277,8 @@ public class JSchREST {
 				session.setProxy(httpProxy);
 			}
 		}
-		session.connect();
+		session.setTimeout(Math.max(server.getTimeOut(), session.getTimeout()));
+		session.connect(session.getTimeout());
 		return session;
 	}
 	
@@ -286,6 +286,30 @@ public class JSchREST {
 		if (channel != null) channel.disconnect();
 		if (session != null) session.disconnect();
 		if (closeable != null) try { closeable.close(); } catch (IOException e) { }
+	}
+	
+	public Expect setupExpect(Channel channel) throws IOException {
+		if (channel == null)
+			return null;
+		return new ExpectBuilder()
+				.withOutput(channel.getOutputStream())
+				.withInputs(channel.getInputStream(), channel.getExtInputStream())
+				.withEchoInput(System.out)
+				.withInputFilters(Filters.removeColors(), Filters.removeNonPrintable())
+				.withExceptionOnFailure().build();
+	}
+	
+	public String expectSuccessOrFailuare(Expect expect, String command,
+			String success, String failure, boolean matchSuccessFirst, int timeout) throws Exception {
+		if (expect == null || StringUtils.trimToNull(command) == null)
+			return "";
+		Result result = expect.sendLine(command).withTimeout(timeout, TimeUnit.SECONDS).expect(
+				Matchers.anyOf(Matchers.contains(success), Matchers.contains(failure)));
+		String message = result.getInput();
+		if ((matchSuccessFirst && message.indexOf(success) < 0)
+				|| (!matchSuccessFirst && message.indexOf(failure) >= 0))
+			throw new JSchException(message);
+		return message;
 	}
 	
 	private JSchResult checkAck(InputStream in) throws IOException {
@@ -303,6 +327,13 @@ public class JSchREST {
 				return new JSchResult("", sb.toString(), b);
 		}
 		return new JSchResult("", "", b);
+	}
+	
+	public static String trimToDefault(String text, String defaultValue) {
+		text = StringUtils.trimToNull(text);
+		if (text == null)
+			text = defaultValue;
+		return text;
 	}
 	
 	@Getter
@@ -343,6 +374,71 @@ public class JSchREST {
 		
 		@ApiModelProperty(value = "status for ssh operation, 0 for expected behavior")
 		private final int status;		
+		
+	}
+	
+	@SuppressWarnings("serial")
+	@Data
+	@AllArgsConstructor
+	public static class SSHExecRequest implements Serializable {
+		
+		@ApiModelProperty(value = "remote ssh server access information", required = true)
+		@NotNull
+		@Valid
+		private SSHServerInfo server;
+		
+		@ApiModelProperty(value = "command to run on remote ssh server", required = true)
+		@NotBlank
+		@Valid
+		private String command;
+		
+	}
+	
+	@SuppressWarnings("serial")
+	@Data
+	@AllArgsConstructor
+	public static class ScpRequest implements Serializable {
+		
+		@ApiModelProperty(value = "Source to be copied", required = true)
+		@NotNull
+		@Valid
+		private SSHServerFile source;
+		
+		@ApiModelProperty(value = "Destination to be copied", required = true)
+		@NotNull
+		@Valid
+		private SSHServerFile destination;
+		
+		@ApiModelProperty(value = "Timeout in seconds for validating scp process, default is 10")
+		private int timeout;
+		
+		@ApiModelProperty(value = "Groovy script to deal with scp process, default is 'scp.groovy'")
+		private String groovyScript;
+		
+		@JsonIgnore
+		@ValidationMethod
+		public boolean isValid() {
+			groovyScript = JSchREST.trimToDefault(groovyScript, "scp.groovy");
+			if (timeout <= 0)
+				timeout = 10;
+			return true;
+		}
+		
+	}
+	
+	@SuppressWarnings("serial")
+	@Data
+	@AllArgsConstructor
+	public static class DeployRequest implements Serializable {
+		
+		@ApiModelProperty(value = "Resource class path within appliation jar, or local file location. Folder is not supported", required = true)
+		@NotBlank
+		private String resource;
+		
+		@ApiModelProperty(value = "Source to be copied", required = true)
+		@NotNull
+		@Valid
+		private SSHServerFile destination;
 		
 	}
 	

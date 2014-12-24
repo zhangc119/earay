@@ -1,2 +1,4 @@
 include 'base'
 include 'bigdata:bigtop'
+include 'serengeti:cli'
+include 'serengeti:install'

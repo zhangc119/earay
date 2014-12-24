@@ -1,15 +1,17 @@
 package earay.bigdata.bigtop.frontend.resource;
 
+import io.dropwizard.validation.ValidationMethod;
+
 import java.io.Serializable;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.validation.Valid;
+import javax.validation.constraints.NotNull;
 import javax.ws.rs.Consumes;
-import javax.ws.rs.DefaultValue;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
@@ -21,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.commons.lang.StringUtils;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.wordnik.swagger.annotations.Api;
 import com.wordnik.swagger.annotations.ApiModel;
 import com.wordnik.swagger.annotations.ApiModelProperty;
@@ -29,9 +32,10 @@ import com.wordnik.swagger.annotations.ApiParam;
 import com.wordnik.swagger.annotations.ApiResponse;
 import com.wordnik.swagger.annotations.ApiResponses;
 
+import earay.base.frontend.model.SSHServerFile;
+import earay.base.frontend.model.SSHServerInfo;
 import earay.base.frontend.resource.JSchREST;
 import earay.base.frontend.resource.JSchREST.JSchResult;
-import earay.base.frontend.resource.RESTUtil;
 
 @Path("/mapreduce")
 @Api(value = "/mapreduce", description = "Operations to trigger mapreduce jobs")
@@ -57,50 +61,36 @@ public class MapReduceREST {
 	@ApiOperation(value = "/wordcount", notes = "Word count job", response = MapReduceResult.class)
 	@ApiResponses(value = { @ApiResponse(code = 400, response = JSchResult.class, message = "Bad request to trigger wordcount job via ssh"),
 			@ApiResponse(code = 500, response = JSchResult.class, message = "Internal server error when kicking off wordcount job via ssh") })
-	public Response runWordCount(
-			@ApiParam(value = "remote hadoop client host name", required = true) @QueryParam("hadoopClientHost") String hadoopClientHost,
-			@ApiParam(value = "sshd port on remote hadoop client host") @DefaultValue("22") @QueryParam("hadoopClientPort") int hadoopClientPort,
-			@ApiParam(value = "user name for hadoop client host", required = true) @QueryParam("hadoopClientUser") String username,
-			@ApiParam(value = "password for hadoop client host", required = true) @QueryParam("hadoopClientPassword") String password,
-			@ApiParam(value = "hdfs folder for word count job") @DefaultValue("wordcount-{" + timeStampToken + "}") @QueryParam("wordCountFolder") String wordCountFolder,
-			@ApiParam(value = "os folder for word count job on client host") @DefaultValue("/tmp/") @QueryParam("resourceFolder") String resourceFolder,
-			@ApiParam(value = "remove hdfs folder for word count after job done") @DefaultValue("false") @QueryParam("removeWordCountFolder") boolean purgeWordCountFolder,
-			@ApiParam(value = "shell script file to trigger word count job, either file path or class path") @DefaultValue(defaultWordCountTrigger) @QueryParam("scriptFile") String scriptFile,
-			@ApiParam(value = "input file for word count job, either file path or class path") @DefaultValue(defaultWordCountInput) @QueryParam("wordCountInput") String wordCountInput,
-			@ApiParam(value = "file to verify output of word count job, either file path or class path. if it's set, the funciton will return any difference") 
-				@DefaultValue(defaultWordCountValidator) @QueryParam("wordCountValidator") String wordCountValidator) {
-		wordCountFolder = RESTUtil.trimToDefault(wordCountFolder, "wordcount-{" + timeStampToken + "}");
-		if (wordCountFolder.indexOf(timeStampToken) >= 0)
-			wordCountFolder = wordCountFolder.replaceAll("\\{" + timeStampToken + "\\}", String.valueOf(System.currentTimeMillis()));
-		resourceFolder = RESTUtil.trimToDefault(resourceFolder, "/tmp/");
-		if (!resourceFolder.endsWith("/"))
-			resourceFolder += "/";
-		scriptFile = RESTUtil.trimToDefault(scriptFile, defaultWordCountTrigger);
+	public Response runWordCount(@ApiParam(required = true) @Valid @NotNull MapReduceRequest req) {
+		String scriptFile = req.getScriptFile();
+		String resourceFolder = req.getResourceFolder();
+		String hadoopClientHost = req.getHadoopClient().getHostName();
 		String fileName = scriptFile;
 		if (scriptFile.lastIndexOf("/") > 0)
 			fileName = scriptFile.substring(scriptFile.lastIndexOf("/") + 1);
-		log.info("Deploying " + scriptFile + " to " + resourceFolder + fileName + " on host " + hadoopClientHost);
-		Response response = jsch.deploy(hadoopClientHost, hadoopClientPort, username, password, scriptFile, resourceFolder + fileName);
+		log.info("Deploying " + scriptFile + " to " + resourceFolder + fileName + " on host " + hadoopClientHost); 
+		Response response = jsch.deploy(new JSchREST.DeployRequest(scriptFile, SSHServerFile.from(req.getHadoopClient(), resourceFolder + fileName)));
 		if (Status.OK.getStatusCode() != response.getStatus()) return response;
 		String command = "cd " + resourceFolder + "; chmod 755 " + fileName + "; ./" + fileName;
-		wordCountInput = RESTUtil.trimToDefault(wordCountInput, defaultWordCountInput);
+		String wordCountInput = req.getWordCountInput();
 		fileName = wordCountInput;
 		if (wordCountInput.lastIndexOf("/") > 0)
 			fileName = wordCountInput.substring(wordCountInput.lastIndexOf("/") + 1);
 		log.info("Deploying " + wordCountInput + " to " + resourceFolder + fileName + " on host " + hadoopClientHost);
-		response = jsch.deploy(hadoopClientHost, hadoopClientPort, username, password, wordCountInput, resourceFolder + fileName);
+		response = jsch.deploy(new JSchREST.DeployRequest(wordCountInput, SSHServerFile.from(req.getHadoopClient(), resourceFolder + fileName)));
 		if (Status.OK.getStatusCode() != response.getStatus()) return response;
-		command += " " + wordCountFolder + " " + fileName + " " + String.valueOf(purgeWordCountFolder);
-		wordCountValidator = StringUtils.trimToNull(wordCountValidator);
+		String wordCountFolder = req.getWordCountFolder();
+		command += " " + wordCountFolder + " " + fileName + " " + String.valueOf(req.isPurgeWordCountFolder());
+		String wordCountValidator = req.getWordCountValidator();	
 		if (wordCountValidator != null) {
 			if (wordCountValidator.lastIndexOf("/") > 0)
 				fileName = wordCountValidator.substring(wordCountValidator.lastIndexOf("/") + 1);
 			log.info("Deploying " + wordCountValidator + " to " + resourceFolder + fileName + " on host " + hadoopClientHost);
-			response = jsch.deploy(hadoopClientHost, hadoopClientPort, username, password, wordCountValidator, resourceFolder + fileName);
+			response = jsch.deploy(new JSchREST.DeployRequest(wordCountValidator, SSHServerFile.from(req.getHadoopClient(), resourceFolder + fileName)));
 			if (Status.OK.getStatusCode() != response.getStatus()) return response;
 		}
 		log.info("Executing '" + command + "' to trigger map reduce job on host " + hadoopClientHost);
-		response = jsch.execute(hadoopClientHost, hadoopClientPort, username, password, command);
+		response = jsch.execute(new JSchREST.SSHExecRequest(req.getHadoopClient(), command));
 		JSchResult jobResult = (JSchResult)response.getEntity();
 		log.info("MapReduce job output stream : \n" + jobResult.getOutput());
 		log.info("MapReduce job error stream : \n" + jobResult.getError());
@@ -109,29 +99,20 @@ public class MapReduceREST {
 		if (wordCountValidator == null) {
 			command = "cat " + remoteResult;
 			log.info("Executing '" + command + "' to get map reduce result on host " + hadoopClientHost);
-			response = jsch.execute(hadoopClientHost, hadoopClientPort, username, password, command);
+			response = jsch.execute(new JSchREST.SSHExecRequest(req.getHadoopClient(), command));
 			if (Status.OK.getStatusCode() != response.getStatus())
-				return Response.ok(MapReduceResult.fromJSchResult(jobResult, "please manually check map reduce result in remote file " + remoteResult)).build();
+				return Response.ok(MapReduceResult.from(jobResult, "please manually check map reduce result in remote file " + remoteResult)).build();
 			else
-				return Response.ok(MapReduceResult.fromJSchResult(jobResult, ((JSchResult)response.getEntity()).getOutput())).build();
+				return Response.ok(MapReduceResult.from(jobResult, ((JSchResult)response.getEntity()).getOutput())).build();
 		} else {
 			command = "diff " + remoteResult + " " + resourceFolder + fileName + "; exit 0";
 			log.info("Executing '" + command + "' to compare map reduce result on host " + hadoopClientHost);
-			response = jsch.execute(hadoopClientHost, hadoopClientPort, username, password, command);
+			response = jsch.execute(new JSchREST.SSHExecRequest(req.getHadoopClient(), command));
 			if (Status.OK.getStatusCode() != response.getStatus())
 				return response;
 			else
-				return Response.ok(MapReduceResult.fromJSchResult(jobResult, ((JSchResult)response.getEntity()).getOutput())).build();
+				return Response.ok(MapReduceResult.from(jobResult, ((JSchResult)response.getEntity()).getOutput())).build();
 		}
-	}
-	
-	@Path("/wordcount2")
-	@POST
-	@ApiOperation(value = "/wordcount2", notes = "Word count job", response = MapReduceResult.class)
-	@ApiResponses(value = { @ApiResponse(code = 400, response = JSchResult.class, message = "Bad request to trigger wordcount job via ssh"),
-			@ApiResponse(code = 500, response = JSchResult.class, message = "Internal server error when kicking off wordcount job via ssh") })
-	public Response runWordCount2(@ApiParam(value = "request", required = true) MapReduceRequest req) {
-		return null;
 	}
 	
 	@Getter
@@ -150,7 +131,7 @@ public class MapReduceREST {
 		@ApiModelProperty(value = "result of mapreduce job")
 		private final String result;
 		
-		public static MapReduceResult fromJSchResult(JSchResult sch, String result) {
+		public static MapReduceResult from(JSchResult sch, String result) {
 			return new MapReduceResult(sch.getOutput(), sch.getError(), sch.getStatus(), result);
 		}
 		
@@ -161,35 +142,50 @@ public class MapReduceREST {
 	@Data
 	public static class MapReduceRequest implements Serializable {
 		
-		@ApiModelProperty(value = "remote hadoop client host name", required = true)
-		private String hadoopClientHost;
+		@ApiModelProperty(value = "remote ssh server access information", required = true)
+		@NotNull
+		@Valid
+		private SSHServerInfo hadoopClient;
 		
-		@ApiModelProperty(value = "sshd port on remote hadoop client host")
-		public int hadoopClientPort = 22;
-		
-		@ApiModelProperty(value = "user name for hadoop client host", required = true)
-		private String username;
-		
-		@ApiModelProperty(value = "user name for hadoop client host", required = true)
-		private String password;
-		
-		@ApiModelProperty(value = "hdfs folder for word count job")
+		@ApiModelProperty(value = "Hdfs folder for word count job, default is wordcount-{" + timeStampToken + "}")
 		private String wordCountFolder;
 		
-		@ApiModelProperty(value = "os folder for word count job on client host")
+		@ApiModelProperty(value = "OS folder for word count job on hadoop client host, default is /tmp/")
 		private String resourceFolder;
 		
-		@ApiModelProperty(value = "remove hdfs folder for word count after job done")
+		@ApiModelProperty(value = "Remove hdfs folder for word count after job done")
 		private boolean purgeWordCountFolder;
 		
-		@ApiModelProperty(value = "shell script file to trigger word count job, either file path or class path")
+		@ApiModelProperty(value = "Shell script file to trigger word count job, "
+				+ "either local file or resource file in class path where earay application is, "
+				+ "default is class path resource file '" + defaultWordCountTrigger + "'")
 		private String scriptFile;
 		
-		@ApiModelProperty(value = "input file for word count job, either file path or class path")
+		@ApiModelProperty(value = "Input file for word count job, "
+				+ "either local file or resource file in class path where earay application is, "
+				+ "default is class path resource file '" + defaultWordCountInput + "'")
 		private String wordCountInput;
 		
-		@ApiModelProperty(value = "file to verify output of word count job, either file path or class path. if it's set, the funciton will return any difference")
+		@ApiModelProperty(value = "File to verify output of word count job, "
+				+ "either local file or resource file in class path where earay application is. "
+				+ "If it's set, the funciton will response with validation result, otherwise, word count job output returns."
+				+ "Use '" + defaultWordCountValidator + "' if you want to compare outcome of input '" + defaultWordCountInput + "'")
 		private String wordCountValidator;
+		
+		@JsonIgnore
+		@ValidationMethod
+		public boolean isValid() {
+			wordCountFolder = JSchREST.trimToDefault(wordCountFolder, "wordcount-{" + timeStampToken + "}");
+			if (wordCountFolder.indexOf(timeStampToken) >= 0)
+				wordCountFolder = wordCountFolder.replaceAll("\\{" + timeStampToken + "\\}", String.valueOf(System.currentTimeMillis()));
+			resourceFolder = JSchREST.trimToDefault(resourceFolder, "/tmp/");
+			if (!resourceFolder.endsWith("/"))
+				resourceFolder += "/";
+			scriptFile = JSchREST.trimToDefault(scriptFile, defaultWordCountTrigger);
+			wordCountInput = JSchREST.trimToDefault(wordCountInput, defaultWordCountInput);
+			wordCountValidator = StringUtils.trimToNull(wordCountValidator);
+			return true;
+		}
 		
 	}
 
