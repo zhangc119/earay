@@ -29,6 +29,7 @@ import javax.ws.rs.core.Response.Status;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.expectit.Expect;
@@ -379,6 +380,7 @@ public class JSchREST {
 	
 	@SuppressWarnings("serial")
 	@Data
+	@NoArgsConstructor
 	@AllArgsConstructor
 	public static class SSHExecRequest implements Serializable {
 		
@@ -396,6 +398,7 @@ public class JSchREST {
 	
 	@SuppressWarnings("serial")
 	@Data
+	@NoArgsConstructor
 	@AllArgsConstructor
 	public static class ScpRequest implements Serializable {
 		
@@ -428,6 +431,7 @@ public class JSchREST {
 	
 	@SuppressWarnings("serial")
 	@Data
+	@NoArgsConstructor
 	@AllArgsConstructor
 	public static class DeployRequest implements Serializable {
 		

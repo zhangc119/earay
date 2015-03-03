@@ -6,6 +6,7 @@ import java.io.Serializable;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import org.apache.commons.lang.StringUtils;
 
@@ -14,6 +15,7 @@ import com.wordnik.swagger.annotations.ApiModelProperty;
 
 @SuppressWarnings("serial")
 @Data
+@NoArgsConstructor
 @AllArgsConstructor
 public class FilePathOrContent implements Serializable{
 	
