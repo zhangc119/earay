@@ -1,5 +1,7 @@
 version = '0.1-SNAPSHOT'
 
+mainClassName = "earay.base.EarayApplication"
+
 List dropwizard = [
   "io.dropwizard:dropwizard-core:${versions.dropwizard}",
   "io.dropwizard:dropwizard-hibernate:${versions.dropwizard}",
@@ -61,12 +63,3 @@ if (project.hasProperty('apps')) {
   }
 }
 
-task earayThinCapsule(type: ThinCapsule) {
-  applicationClass "earay.base.EarayApplication"
-}
-task earayFatCapsule(type: FatCapsule) {
-  applicationClass "earay.base.EarayApplication"
-}
-task earayEmptyCapsule(type: Capsule) {
-  applicationClass "earay.base.EarayApplication:LATEST"
-}

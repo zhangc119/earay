@@ -5,12 +5,4 @@ dependencies {
     compile project(':base')
 }
 
-task hadoopThinCapsule(type: ThinCapsule) {
-  applicationClass "earay.serengeti.install.SerengetiInstaller"
-}
-task hadoopFatCapsule(type: FatCapsule) {
-  applicationClass "earay.serengeti.install.SerengetiInstaller"
-}
-task hadoopEmptyCapsule(type: Capsule) {
-  applicationClass "earay.serengeti.install.SerengetiInstaller:LATEST"
-}
+mainClassName = "earay.serengeti.install.SerengetiInstaller"

@@ -6,12 +6,4 @@ dependencies {
     compile project(':base')
 }
 
-task hadoopThinCapsule(type: ThinCapsule) {
-  applicationClass "earay.bigdata.bigtop.BigtopApplication"
-}
-task hadoopFatCapsule(type: FatCapsule) {
-  applicationClass "earay.bigdata.bigtop.BigtopApplication"
-}
-task hadoopEmptyCapsule(type: Capsule) {
-  applicationClass "earay.bigdata.bigtop.BigtopApplication:LATEST"
-}
+mainClassName = "earay.bigdata.bigtop.BigtopApplication"

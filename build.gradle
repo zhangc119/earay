@@ -15,8 +15,8 @@ ext {
 
 subprojects {
   apply plugin: 'java'
+  apply plugin: 'application'
   apply plugin: 'eclipse'
-  apply plugin: 'us.kirchmeier.capsule'
   group = 'earay'
   archivesBaseName = "earay-" + project.name
   compileJava.options.encoding = 'UTF-8'
@@ -97,5 +97,10 @@ subprojects {
   dependencies {
     querydslapt "com.mysema.querydsl:querydsl-apt:${versions.querydsl}:hibernate"
     querydslaptEclipse "com.mysema.querydsl:querydsl-jpa:${versions.querydsl}:apt-hibernate-one-jar"
+  }
+  run {
+    if (project.hasProperty('args')) {
+      args project.args.split('\\s+')
+    }
   }
 }
