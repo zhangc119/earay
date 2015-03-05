@@ -1,6 +1,11 @@
 plugins {
-  id "us.kirchmeier.capsule" version "0.9.0"
+  id "com.bmuschko.docker-java-application" version "2.0.2"
+  id "com.bmuschko.docker-remote-api" version "2.0.2"
 }
+
+import com.bmuschko.gradle.docker.tasks.image.DockerInspectImage
+import com.bmuschko.gradle.docker.tasks.container.DockerCreateContainer
+import com.bmuschko.gradle.docker.tasks.container.DockerStartContainer
 
 apply plugin: 'eclipse'
 
@@ -16,9 +21,12 @@ ext {
 subprojects {
   apply plugin: 'java'
   apply plugin: 'application'
+  apply plugin: 'com.bmuschko.docker-remote-api'
+  apply plugin: 'com.bmuschko.docker-java-application'
   apply plugin: 'eclipse'
   group = 'earay'
   archivesBaseName = "earay-" + project.name
+  sourceCompatibility = 1.7
   compileJava.options.encoding = 'UTF-8'
   repositories {
 // definitely there is a bug in gradle working with mavenLocal http://forums.gradle.org/gradle/topics/gradle_fails_to_download_dependencies_if_not_present_in_mavenlocal. as mavenLocal doesn't introduce any performance benefits, comment it out in category repositories. 
@@ -99,8 +107,40 @@ subprojects {
     querydslaptEclipse "com.mysema.querydsl:querydsl-jpa:${versions.querydsl}:apt-hibernate-one-jar"
   }
   run {
+    if (project.hasProperty('runSpec')) {
+      args 'server', project.runSpec
+    }
     if (project.hasProperty('args')) {
       args project.args.split('\\s+')
     }
+  }
+  docker {
+    url = 'https://10.111.57.114:2376'
+    certPath = new File(System.properties['user.home'], '.docker/machine/machines/vdocker2')
+    javaApplication {
+      maintainer = 'Chandler Zhang "chengz@vmware.com"'
+    }
+  }
+  dockerCopyDistResources {
+    if (project.hasProperty('runSpec')) {
+      from file(project.runSpec)
+    }
+  }
+  dockerDistTar {
+    if (project.hasProperty('runSpec')) {
+      addFile file(project.runSpec).name, '/earay.yml'
+    }
+  }
+  task inspectImage(type: DockerInspectImage) {
+    dependsOn dockerBuildImage
+    targetImageId { dockerBuildImage.getImageId() }
+  }
+  task createContainer(type: DockerCreateContainer) {
+    dependsOn inspectImage
+    targetImageId { dockerBuildImage.getImageId() }
+  }
+  task startContainer(type: DockerStartContainer) {
+    dependsOn createContainer
+    targetContainerId { createContainer.getContainerId() }
   }
 }
