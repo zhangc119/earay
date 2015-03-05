@@ -32,4 +32,4 @@ Earay for micro service based on dropwizard.
 
 4.2) create docker image : ./gradlew -p base -Papps=bigdata:bigtop,serengeti -PrunSpec="../bigdata/bigtop/bigtop.yml" clean inspectImage  
 
-4.3) on docker instance, run "docker run -p 8083:8083 <image_id returned in #4.2>", then you can access the application from http://<docker_instance_ip>:8083
+4.3) on docker instance, run "docker run -p 8083:8083 {image_id returned in #4.2}", then you can access the application from http://{docker_instance_ip}:8083
