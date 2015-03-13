@@ -12,7 +12,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -164,6 +167,7 @@ public class JSchREST {
 		Session session = null;
 		Channel channel = null;
 		InputStream fis = null;
+		JarFile jar = null;
 		try {
 			session = openSSH(req.getDestination());
 			String command = "scp -t " + req.getDestination().getFile();
@@ -180,17 +184,33 @@ public class JSchREST {
 			URL fileURL = JSchREST.class.getClassLoader().getResource(resource);
 			File localFile = null;
 			String fileName = resource;
+			long fileSize = 0;
 			if (fileURL == null) {
 				localFile = new File(resource);
 				if (!localFile.exists())
-					return Response.status(Status.BAD_REQUEST).entity(new JSchResult("", resource + " doen not exist", -1)).build();	
+					return Response.status(Status.BAD_REQUEST).entity(new JSchResult("", resource + " does not exist", -1)).build();
+				fileSize = localFile.length();
 			} else {
-				fileName = fileURL.getFile();
-				localFile = new File(fileName);
+				if ("jar".equals(fileURL.getProtocol())) {
+					int index = fileURL.getPath().indexOf("!");
+					String jarPath = fileURL.getPath().substring(5, index);
+					fileName = fileURL.getPath().substring(index + 2);
+					jar = new JarFile(URLDecoder.decode(jarPath, "UTF-8"));
+					JarEntry entry = jar.getJarEntry(fileName);
+					if (entry == null)
+						return Response.status(Status.BAD_REQUEST).entity(new JSchResult("", resource + " does not exist", -1)).build();
+					fileSize = entry.getSize();
+					if (entry.isDirectory() || fileSize == 0)
+						return Response.status(Status.BAD_REQUEST).entity(new JSchResult("", resource + " is a folder which is not supported here", -1)).build();
+				} else {
+					fileName = fileURL.getFile();
+					localFile = new File(fileName);
+					fileSize = localFile.length();
+				}
 			}
-			if (localFile.isDirectory())
-				return Response.status(Status.BAD_REQUEST).entity(new JSchResult("", resource + " is a folder which is supported here", -1)).build();
-			command = "C0644 " + localFile.length() + " ";
+			if (localFile != null && localFile.isDirectory())
+				return Response.status(Status.BAD_REQUEST).entity(new JSchResult("", resource + " is a folder which is not supported here", -1)).build();
+			command = "C0644 " + fileSize + " ";
 			if (fileName.lastIndexOf("/") > 0)
 				command += fileName.substring(fileName.lastIndexOf('/') + 1);
 			else
@@ -213,13 +233,11 @@ public class JSchREST {
 					break;
 				out.write(buf, 0, len);
 			}
-			fis.close();
-			fis = null;
 			buf[0] = 0;
 			out.write(buf, 0, 1);
 			out.flush();
-			out.close();
 			result = checkAck(in);
+			out.close();
 			if (result.getStatus() != 0) {
 				return Response.serverError().entity(result).build();
 			}
@@ -229,6 +247,7 @@ public class JSchREST {
 			return Response.serverError().entity(new JSchResult("", ex.getMessage(), -1)).build();
 		} finally {
 			closeSSH(session, channel, fis);
+			closeSSH(null, null, jar);
 		}
 	}
 	
